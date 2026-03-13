@@ -138,7 +138,7 @@ exports.microsoftAuthCallback = async (req, res) => {
       refreshToken: refresh_token || ""
     });
 
-    res.redirect("${process.env.FRONTEND_REDIRECT_URI}/templates?account=connected");
+    res.redirect(`${process.env.FRONTEND_REDIRECT_URI}/templates?account=connected`);
   } catch (error) {
     res.status(500).send("Microsoft OAuth failed");
   }
