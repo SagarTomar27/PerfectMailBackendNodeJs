@@ -1,14 +1,16 @@
 const axios = require("axios");
 const EmailAccount = require("../models/EmailAccount");
+const MondayUser = require("../models/MondayUser");
 
-const buildGoogleAuthUrl = () => {
+const buildGoogleAuthUrl = (state) => {
   const params = new URLSearchParams({
     client_id: process.env.GOOGLE_CLIENT_ID || "",
     redirect_uri: process.env.GOOGLE_REDIRECT_URI || "",
     response_type: "code",
     scope: "openid email profile https://www.googleapis.com/auth/gmail.send",
     access_type: "offline",
-    prompt: "consent"
+    prompt: "consent",
+    state: state || ""
   });
   return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
 };
@@ -17,11 +19,12 @@ exports.googleAuthStart = (req, res) => {
   if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_REDIRECT_URI) {
     return res.status(500).send("Google OAuth not configured");
   }
-  res.redirect(buildGoogleAuthUrl());
+  res.redirect(buildGoogleAuthUrl(req.query.state));
 };
 
 exports.googleAuthCallback = async (req, res) => {
   const code = req.query.code;
+  const state = req.query.state || "";
   if (!code) return res.status(400).send("Missing code");
 
   try {
@@ -41,7 +44,21 @@ exports.googleAuthCallback = async (req, res) => {
       headers: { Authorization: `Bearer ${access_token}` }
     });
 
-    const account = await EmailAccount.create({
+    let tenant = { accountId: "", userId: "", accessToken: "" };
+    if (state.includes(":")) {
+      const [accountId, userId] = state.split(":");
+      const mondayUser = await MondayUser.findOne({ accountId, userId });
+      if (mondayUser) {
+        tenant = {
+          accountId: mondayUser.accountId,
+          userId: mondayUser.userId,
+          accessToken: mondayUser.accessToken
+        };
+      }
+    }
+
+    await EmailAccount.create({
+      ...tenant,
       provider: "google",
       email: profileRes.data.email,
       displayName: profileRes.data.name || "",
@@ -49,20 +66,21 @@ exports.googleAuthCallback = async (req, res) => {
       refreshToken: refresh_token || ""
     });
 
-    res.redirect("http://localhost:3000/templates?account=connected");
+    res.redirect(`${process.env.FRONTEND_REDIRECT_URI}/templates?account=connected`);
   } catch (error) {
     res.status(500).send("Google OAuth failed");
   }
 };
 
-const buildMicrosoftAuthUrl = () => {
+const buildMicrosoftAuthUrl = (state) => {
   const params = new URLSearchParams({
     client_id: process.env.MICROSOFT_CLIENT_ID || "",
     response_type: "code",
     redirect_uri: process.env.MICROSOFT_REDIRECT_URI || "",
     response_mode: "query",
     scope: "openid profile email offline_access https://graph.microsoft.com/Mail.Send https://graph.microsoft.com/User.Read",
-    prompt: "consent"
+    prompt: "consent",
+    state: state || ""
   });
   return `https://login.microsoftonline.com/${process.env.MICROSOFT_TENANT_ID || "common"}/oauth2/v2.0/authorize?${params.toString()}`;
 };
@@ -71,11 +89,12 @@ exports.microsoftAuthStart = (req, res) => {
   if (!process.env.MICROSOFT_CLIENT_ID || !process.env.MICROSOFT_REDIRECT_URI) {
     return res.status(500).send("Microsoft OAuth not configured");
   }
-  res.redirect(buildMicrosoftAuthUrl());
+  res.redirect(buildMicrosoftAuthUrl(req.query.state));
 };
 
 exports.microsoftAuthCallback = async (req, res) => {
   const code = req.query.code;
+  const state = req.query.state || "";
   if (!code) return res.status(400).send("Missing code");
 
   try {
@@ -97,7 +116,21 @@ exports.microsoftAuthCallback = async (req, res) => {
       headers: { Authorization: `Bearer ${access_token}` }
     });
 
+    let tenant = { accountId: "", userId: "", accessToken: "" };
+    if (state.includes(":")) {
+      const [accountId, userId] = state.split(":");
+      const mondayUser = await MondayUser.findOne({ accountId, userId });
+      if (mondayUser) {
+        tenant = {
+          accountId: mondayUser.accountId,
+          userId: mondayUser.userId,
+          accessToken: mondayUser.accessToken
+        };
+      }
+    }
+
     await EmailAccount.create({
+      ...tenant,
       provider: "microsoft",
       email: profileRes.data.mail || profileRes.data.userPrincipalName,
       displayName: profileRes.data.displayName || "",
@@ -105,7 +138,7 @@ exports.microsoftAuthCallback = async (req, res) => {
       refreshToken: refresh_token || ""
     });
 
-    res.redirect("http://localhost:3000/templates?account=connected");
+    res.redirect("${process.env.FRONTEND_REDIRECT_URI}/templates?account=connected");
   } catch (error) {
     res.status(500).send("Microsoft OAuth failed");
   }

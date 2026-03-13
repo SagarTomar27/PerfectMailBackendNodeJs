@@ -2,6 +2,9 @@ const mongoose = require("mongoose");
 
 const EmailLogSchema = new mongoose.Schema(
   {
+    accountId: { type: String, default: "" },
+    userId: { type: String, default: "" },
+    accessToken: { type: String, default: "" },
     templateId: { type: mongoose.Schema.Types.ObjectId, ref: "Template" },
     toEmail: { type: String, default: "" },
     subject: { type: String, default: "" },

@@ -4,7 +4,10 @@ const MondayUserSchema = new mongoose.Schema({
 
   accountId: String,
   userId: String,
-  accessToken: String
+  name: String,
+  email: String,
+  accessToken: String,
+  installedAt: { type: Date, default: Date.now }
 
 });
 

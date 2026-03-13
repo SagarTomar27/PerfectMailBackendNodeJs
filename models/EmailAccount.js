@@ -2,10 +2,12 @@ const mongoose = require("mongoose");
 
 const EmailAccountSchema = new mongoose.Schema(
   {
+    accountId: { type: String, default: "" },
+    userId: { type: String, default: "" },
+    accessToken: { type: String, default: "" },
     provider: { type: String, enum: ["google", "microsoft"], required: true },
     email: { type: String, required: true },
     displayName: { type: String, default: "" },
-    accessToken: { type: String, default: "" },
     refreshToken: { type: String, default: "" }
   },
   { timestamps: true }

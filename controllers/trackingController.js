@@ -9,11 +9,19 @@ const ensureDb = (res) => {
   return true;
 };
 
+const getTenant = (req) => ({
+  accountId: req.headers["x-account-id"] || ""
+});
+
 exports.listTracking = async (req, res) => {
   if (!ensureDb(res)) return;
+  const tenant = getTenant(req);
+  if (!tenant.accountId) {
+    return res.status(400).json({ error: "Missing accountId" });
+  }
 
   try {
-    const logs = await EmailLog.find().sort({ sentAt: -1 });
+    const logs = await EmailLog.find({ accountId: tenant.accountId }).sort({ sentAt: -1 });
     res.json(logs);
   } catch (error) {
     res.status(500).json({ error: "Failed to fetch tracking logs" });

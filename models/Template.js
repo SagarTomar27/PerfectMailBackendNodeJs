@@ -2,6 +2,9 @@ const mongoose = require("mongoose");
 
 const TemplateSchema = new mongoose.Schema(
   {
+    accountId: { type: String, default: "" },
+    userId: { type: String, default: "" },
+    accessToken: { type: String, default: "" },
     sender: { type: String, default: "" },
     toEmail: { type: String, default: "" },
     subject: { type: String, default: "" },
