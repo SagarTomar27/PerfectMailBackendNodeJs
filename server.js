@@ -7,9 +7,29 @@ dotenv.config();
 const app = express();
 
 app.use(express.json());
+const allowedOrigins = (process.env.CORS_ORIGINS || "")
+  .split(",")
+  .map((o) => o.trim())
+  .filter(Boolean);
+
 app.use((req, res, next) => {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
+  const origin = req.headers.origin;
+  if (origin) {
+    const isAllowed = allowedOrigins.some((o) => {
+      if (o.includes("*")) {
+        const suffix = o.replace("*", "");
+        return origin.endsWith(suffix);
+      }
+      return o === origin;
+    });
+    if (isAllowed) {
+      res.setHeader("Access-Control-Allow-Origin", origin);
+    }
+  }
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    "Origin, X-Requested-With, Content-Type, Accept, x-account-id, x-user-id, x-access-token"
+  );
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
   if (req.method === "OPTIONS") {
     return res.sendStatus(204);
