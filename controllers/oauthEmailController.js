@@ -57,7 +57,7 @@ exports.googleAuthCallback = async (req, res) => {
       }
     }
 
-    await EmailAccount.create({
+    const created = await EmailAccount.create({
       ...tenant,
       provider: "google",
       email: profileRes.data.email,
@@ -65,9 +65,29 @@ exports.googleAuthCallback = async (req, res) => {
       accessToken: access_token,
       refreshToken: refresh_token || ""
     });
+    console.log("Google account saved", created._id.toString(), created.email);
 
-    res.redirect(`${process.env.FRONTEND_REDIRECT_URI}/templates?account=connected`);
+    const origin = process.env.FRONTEND_REDIRECT_URI || "http://localhost:3000";
+    res.set("Content-Type", "text/html");
+    res.send(`<!doctype html>
+<html>
+  <head><meta charset="utf-8"></head>
+  <body>
+    <script>
+      (function(){
+        try {
+          if (window.opener) {
+            window.opener.postMessage({ provider: "google", status: "connected" }, "${origin}");
+          }
+        } catch (e) {}
+        window.close();
+      })();
+    </script>
+    <p>Connected. You can close this window.</p>
+  </body>
+</html>`);
   } catch (error) {
+    console.log("Google OAuth failed", error.response?.data || error.message);
     res.status(500).send("Google OAuth failed");
   }
 };
@@ -129,7 +149,7 @@ exports.microsoftAuthCallback = async (req, res) => {
       }
     }
 
-    await EmailAccount.create({
+    const created = await EmailAccount.create({
       ...tenant,
       provider: "microsoft",
       email: profileRes.data.mail || profileRes.data.userPrincipalName,
@@ -137,9 +157,29 @@ exports.microsoftAuthCallback = async (req, res) => {
       accessToken: access_token,
       refreshToken: refresh_token || ""
     });
+    console.log("Microsoft account saved", created._id.toString(), created.email);
 
-    res.redirect(`${process.env.FRONTEND_REDIRECT_URI}/templates?account=connected`);
+    const origin = process.env.FRONTEND_REDIRECT_URI || "http://localhost:3000";
+    res.set("Content-Type", "text/html");
+    res.send(`<!doctype html>
+<html>
+  <head><meta charset="utf-8"></head>
+  <body>
+    <script>
+      (function(){
+        try {
+          if (window.opener) {
+            window.opener.postMessage({ provider: "microsoft", status: "connected" }, "${origin}");
+          }
+        } catch (e) {}
+        window.close();
+      })();
+    </script>
+    <p>Connected. You can close this window.</p>
+  </body>
+</html>`);
   } catch (error) {
+    console.log("Microsoft OAuth failed", error.response?.data || error.message);
     res.status(500).send("Microsoft OAuth failed");
   }
 };
