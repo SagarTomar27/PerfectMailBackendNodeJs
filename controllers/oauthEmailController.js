@@ -50,13 +50,11 @@ exports.googleAuthCallback = async (req, res) => {
     if (state.includes(":")) {
       const [accountId, userId] = state.split(":");
       console.log("Google OAuth tenant state", { accountId, userId });
-      const mondayUser = await MondayUser.findOne({ accountId, userId });
+      tenant.accountId = String(accountId || "");
+      tenant.userId = String(userId || "");
+      const mondayUser = await MondayUser.findOne({ accountId: tenant.accountId, userId: tenant.userId });
       if (mondayUser) {
-        tenant = {
-          accountId: mondayUser.accountId,
-          userId: mondayUser.userId,
-          accessToken: mondayUser.accessToken
-        };
+        tenant.accessToken = mondayUser.accessToken;
       }
     }
 
@@ -71,7 +69,10 @@ exports.googleAuthCallback = async (req, res) => {
       email: profileRes.data.email,
       displayName: profileRes.data.name || "",
       accessToken: access_token,
-      refreshToken: refresh_token || ""
+      refreshToken: refresh_token || "",
+        accountId:tenant.accountId,
+          userId: tenant.userId,
+
     });
     console.log("Google account saved", created._id.toString(), created.email);
 
@@ -150,13 +151,11 @@ exports.microsoftAuthCallback = async (req, res) => {
     if (state.includes(":")) {
       const [accountId, userId] = state.split(":");
       console.log("Microsoft OAuth tenant state", { accountId, userId });
-      const mondayUser = await MondayUser.findOne({ accountId, userId });
+      tenant.accountId = String(accountId || "");
+      tenant.userId = String(userId || "");
+      const mondayUser = await MondayUser.findOne({ accountId: tenant.accountId, userId: tenant.userId });
       if (mondayUser) {
-        tenant = {
-          accountId: mondayUser.accountId,
-          userId: mondayUser.userId,
-          accessToken: mondayUser.accessToken
-        };
+        tenant.accessToken = mondayUser.accessToken;
       }
     }
 
@@ -171,7 +170,9 @@ exports.microsoftAuthCallback = async (req, res) => {
       email: profileRes.data.mail || profileRes.data.userPrincipalName,
       displayName: profileRes.data.displayName || "",
       accessToken: access_token,
-      refreshToken: refresh_token || ""
+      refreshToken: refresh_token || "",
+       accountId:tenant.accountId,
+          userId: tenant.userId,
     });
     console.log("Microsoft account saved", created._id.toString(), created.email);
 
