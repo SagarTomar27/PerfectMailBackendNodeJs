@@ -19,6 +19,7 @@ exports.googleAuthStart = (req, res) => {
   if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_REDIRECT_URI) {
     return res.status(500).send("Google OAuth not configured");
   }
+  console.log("Google OAuth start", { state: req.query.state || "" });
   res.redirect(buildGoogleAuthUrl(req.query.state));
 };
 
@@ -28,6 +29,7 @@ exports.googleAuthCallback = async (req, res) => {
   if (!code) return res.status(400).send("Missing code");
 
   try {
+    console.log("Google OAuth callback", { hasCode: Boolean(code), state });
     const tokenRes = await axios.post(
       "https://oauth2.googleapis.com/token",
       {
@@ -47,6 +49,7 @@ exports.googleAuthCallback = async (req, res) => {
     let tenant = { accountId: "", userId: "", accessToken: "" };
     if (state.includes(":")) {
       const [accountId, userId] = state.split(":");
+      console.log("Google OAuth tenant state", { accountId, userId });
       const mondayUser = await MondayUser.findOne({ accountId, userId });
       if (mondayUser) {
         tenant = {
@@ -56,6 +59,11 @@ exports.googleAuthCallback = async (req, res) => {
         };
       }
     }
+
+    console.log("Google OAuth profile", {
+      email: profileRes.data?.email,
+      name: profileRes.data?.name
+    });
 
     const created = await EmailAccount.create({
       ...tenant,
@@ -109,6 +117,7 @@ exports.microsoftAuthStart = (req, res) => {
   if (!process.env.MICROSOFT_CLIENT_ID || !process.env.MICROSOFT_REDIRECT_URI) {
     return res.status(500).send("Microsoft OAuth not configured");
   }
+  console.log("Microsoft OAuth start", { state: req.query.state || "" });
   res.redirect(buildMicrosoftAuthUrl(req.query.state));
 };
 
@@ -118,6 +127,7 @@ exports.microsoftAuthCallback = async (req, res) => {
   if (!code) return res.status(400).send("Missing code");
 
   try {
+    console.log("Microsoft OAuth callback", { hasCode: Boolean(code), state });
     const tokenRes = await axios.post(
       `https://login.microsoftonline.com/${process.env.MICROSOFT_TENANT_ID || "common"}/oauth2/v2.0/token`,
       new URLSearchParams({
@@ -139,6 +149,7 @@ exports.microsoftAuthCallback = async (req, res) => {
     let tenant = { accountId: "", userId: "", accessToken: "" };
     if (state.includes(":")) {
       const [accountId, userId] = state.split(":");
+      console.log("Microsoft OAuth tenant state", { accountId, userId });
       const mondayUser = await MondayUser.findOne({ accountId, userId });
       if (mondayUser) {
         tenant = {
@@ -148,6 +159,11 @@ exports.microsoftAuthCallback = async (req, res) => {
         };
       }
     }
+
+    console.log("Microsoft OAuth profile", {
+      email: profileRes.data?.mail || profileRes.data?.userPrincipalName,
+      name: profileRes.data?.displayName
+    });
 
     const created = await EmailAccount.create({
       ...tenant,
