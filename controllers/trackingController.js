@@ -39,17 +39,35 @@ exports.sendgridEvents = async (req, res) => {
       if (!messageId) continue;
 
       if (eventType === "open") {
-        await EmailLog.updateOne(
-          { sgMessageId: messageId },
-          { $set: { opened: true, openedAt: new Date() } }
-        );
+        const existing = await EmailLog.findOne({ sgMessageId: messageId });
+        if (existing) {
+          const now = new Date();
+          const update = {
+            opened: true,
+            lastOpenedAt: now,
+            openCount: (existing.openCount || 0) + 1
+          };
+          if (!existing.openedAt) {
+            update.openedAt = now;
+          }
+          await EmailLog.updateOne({ _id: existing._id }, { $set: update });
+        } else {
+          console.log("SendGrid open event: log not found", messageId);
+        }
       }
 
       if (eventType === "click") {
-        await EmailLog.updateOne(
-          { sgMessageId: messageId },
-          { $set: { clicked: true, clickedAt: new Date() } }
-        );
+        const existing = await EmailLog.findOne({ sgMessageId: messageId });
+        if (existing) {
+          const now = new Date();
+          const update = {
+            clicked: true,
+            clickedAt: now
+          };
+          await EmailLog.updateOne({ _id: existing._id }, { $set: update });
+        } else {
+          console.log("SendGrid click event: log not found", messageId);
+        }
       }
     }
 
@@ -60,23 +78,30 @@ exports.sendgridEvents = async (req, res) => {
 };
 
 exports.openPixel = async (req, res) => {
-  if (!ensureDb(res)) return;
-
   try {
     const trackingId = req.query.id || "";
-    if (trackingId) {
-      const now = new Date();
-      await EmailLog.updateOne(
-        { trackingId },
-        {
-          $set: { opened: true, lastOpenedAt: now },
-          $setOnInsert: { openedAt: now },
-          $inc: { openCount: 1 }
+    if (trackingId && mongoose.connection.readyState === 1) {
+      const existing = await EmailLog.findOne({ trackingId });
+      if (existing) {
+        const now = new Date();
+        const update = {
+          opened: true,
+          lastOpenedAt: now,
+          openCount: (existing.openCount || 0) + 1
+        };
+        if (!existing.openedAt) {
+          update.openedAt = now;
         }
-      );
+        await EmailLog.updateOne({ _id: existing._id }, { $set: update });
+      } else {
+        console.log("Open pixel: log not found", trackingId);
+      }
+    } else if (!trackingId) {
+      console.log("Open pixel hit without trackingId");
     }
   } catch (error) {
     // ignore tracking errors
+    console.log("Open pixel error", error.message);
   }
 
   const pixel = Buffer.from(
