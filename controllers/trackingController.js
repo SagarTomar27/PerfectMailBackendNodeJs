@@ -62,7 +62,9 @@ exports.sendgridEvents = async (req, res) => {
           const now = new Date();
           const update = {
             clicked: true,
-            clickedAt: now
+            clickedAt: existing.clickedAt || now,
+            lastClickedAt: now,
+            clickCount: (existing.clickCount || 0) + 1
           };
           await EmailLog.updateOne({ _id: existing._id }, { $set: update });
         } else {
@@ -137,4 +139,33 @@ exports.openPixel = async (req, res) => {
   }
 
   return sendPixel(res);
+};
+
+exports.clickRedirect = async (req, res) => {
+  try {
+    const trackingId = req.query.id || "";
+    const targetUrl = req.query.url || "";
+    if (trackingId && mongoose.connection.readyState === 1) {
+      const existing = await EmailLog.findOne({ trackingId });
+      if (existing) {
+        const now = new Date();
+        const update = {
+          clicked: true,
+          clickedAt: existing.clickedAt || now,
+          lastClickedAt: now,
+          clickCount: (existing.clickCount || 0) + 1
+        };
+        await EmailLog.updateOne({ _id: existing._id }, { $set: update });
+      } else {
+        console.log("Click redirect: log not found", trackingId);
+      }
+    }
+    if (targetUrl) {
+      const decoded = decodeURIComponent(targetUrl);
+      return res.redirect(decoded);
+    }
+  } catch (error) {
+    console.log("Click redirect error", error.message);
+  }
+  return res.status(400).send("Invalid tracking link");
 };

@@ -180,7 +180,13 @@ const buildTrackedHtml = (html, trackingId) => {
   const baseUrl = process.env.TRACKING_BASE_URL || "";
   if (!baseUrl || !trackingId) return html || "";
   const pixel = `<img src="${baseUrl}/api/tracking/open?id=${trackingId}" width="1" height="1" style="display:none;" alt="" />`;
-  return `${html || ""}${pixel}`;
+  const clickReplace = (content) =>
+    String(content || "").replace(
+      /href="(https?:\/\/[^"]+)"/gi,
+      `href="${baseUrl}/api/tracking/click?id=${trackingId}&url=$1"`
+    );
+  const withClicks = clickReplace(html || "");
+  return `${withClicks}${pixel}`;
 };
 
 exports.listTemplates = async (req, res) => {

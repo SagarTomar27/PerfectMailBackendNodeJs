@@ -21,6 +21,8 @@ const EmailLogSchema = new mongoose.Schema(
     lastOpenedAt: { type: Date },
     openCount: { type: Number, default: 0 },
     clickedAt: { type: Date },
+    lastClickedAt: { type: Date },
+    clickCount: { type: Number, default: 0 },
     sgMessageId: { type: String, default: "" }
   },
   { timestamps: true }
