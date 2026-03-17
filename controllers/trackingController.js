@@ -77,13 +77,46 @@ exports.sendgridEvents = async (req, res) => {
   }
 };
 
+const isLikelyScanner = (userAgent) => {
+  const ua = String(userAgent || "").toLowerCase();
+  return (
+    ua.includes("security") ||
+    ua.includes("scanner") ||
+    ua.includes("spider") ||
+    ua.includes("bot") ||
+    ua.includes("preview")
+  );
+};
+
+const sendPixel = (res) => {
+  const pixel = Buffer.from(
+    "R0lGODlhAQABAPAAAAAAAAAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==",
+    "base64"
+  );
+  res.setHeader("Content-Type", "image/gif");
+  res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+  res.status(200).send(pixel);
+};
+
 exports.openPixel = async (req, res) => {
   try {
     const trackingId = req.query.id || "";
+    const userAgent = req.headers["user-agent"] || "";
+    if (isLikelyScanner(userAgent)) {
+      return sendPixel(res);
+    }
+
     if (trackingId && mongoose.connection.readyState === 1) {
       const existing = await EmailLog.findOne({ trackingId });
       if (existing) {
         const now = new Date();
+        const minDelayMs = 10000;
+        const sentAt = existing.sentAt ? new Date(existing.sentAt).getTime() : 0;
+        if (sentAt && now.getTime() - sentAt < minDelayMs) {
+          return sendPixel(res);
+        }
         const update = {
           opened: true,
           lastOpenedAt: now,
@@ -100,17 +133,8 @@ exports.openPixel = async (req, res) => {
       console.log("Open pixel hit without trackingId");
     }
   } catch (error) {
-    // ignore tracking errors
     console.log("Open pixel error", error.message);
   }
 
-  const pixel = Buffer.from(
-    "R0lGODlhAQABAPAAAAAAAAAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==",
-    "base64"
-  );
-  res.setHeader("Content-Type", "image/gif");
-  res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-  res.setHeader("Pragma", "no-cache");
-  res.setHeader("Expires", "0");
-  res.status(200).send(pixel);
+  return sendPixel(res);
 };
