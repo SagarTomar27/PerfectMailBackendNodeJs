@@ -7,6 +7,8 @@ const TemplateSchema = new mongoose.Schema(
     accessToken: { type: String, default: "" },
     sender: { type: String, default: "" },
     toEmail: { type: String, default: "" },
+    ccEmail: { type: String, default: "" },
+    bccEmail: { type: String, default: "" },
     subject: { type: String, default: "" },
     body: { type: String, default: "" },
     createUpdate: { type: Boolean, default: false },

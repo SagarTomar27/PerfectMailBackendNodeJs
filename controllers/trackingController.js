@@ -58,3 +58,34 @@ exports.sendgridEvents = async (req, res) => {
     res.status(500).json({ error: "Failed to process events" });
   }
 };
+
+exports.openPixel = async (req, res) => {
+  if (!ensureDb(res)) return;
+
+  try {
+    const trackingId = req.query.id || "";
+    if (trackingId) {
+      const now = new Date();
+      await EmailLog.updateOne(
+        { trackingId },
+        {
+          $set: { opened: true, lastOpenedAt: now },
+          $setOnInsert: { openedAt: now },
+          $inc: { openCount: 1 }
+        }
+      );
+    }
+  } catch (error) {
+    // ignore tracking errors
+  }
+
+  const pixel = Buffer.from(
+    "R0lGODlhAQABAPAAAAAAAAAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==",
+    "base64"
+  );
+  res.setHeader("Content-Type", "image/gif");
+  res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+  res.status(200).send(pixel);
+};
