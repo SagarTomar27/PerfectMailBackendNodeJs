@@ -11,6 +11,14 @@ const TemplateSchema = new mongoose.Schema(
     bccEmail: { type: String, default: "" },
     subject: { type: String, default: "" },
     body: { type: String, default: "" },
+    isHtml: { type: Boolean, default: false },
+    attachments: [
+      {
+        filename: { type: String, default: "" },
+        mimetype: { type: String, default: "" },
+        size: { type: Number, default: 0 }
+      }
+    ],
     createUpdate: { type: Boolean, default: false },
     tracking: { type: Boolean, default: false },
     status: { type: String, enum: ["draft", "sent"], default: "draft" }

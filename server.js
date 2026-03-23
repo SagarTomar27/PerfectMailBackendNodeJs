@@ -1,11 +1,11 @@
 const express = require("express");
 const dotenv = require("dotenv");
 const mongoose = require("mongoose");
-
+const cors = require('cors');
 dotenv.config();
 
 const app = express();
-
+app.use(cors());
 app.use(express.json());
 const allowedOrigins = (process.env.CORS_ORIGINS || "")
   .split(",")
@@ -65,6 +65,18 @@ app.use("/auth", emailOAuthRoutes);
 
 const emailAccountsRoutes = require("./routes/emailAccounts");
 app.use("/api/email-accounts", emailAccountsRoutes);
+
+// Monday data routes
+const mondayRoutes = require("./routes/monday");
+app.use("/api/monday", mondayRoutes);
+app.use("/api/account-boards", mondayRoutes);
+
+// Debug routes
+const debugRoutes = require("./routes/debug");
+app.use("/api/debug", debugRoutes);
+
+const mondayApiRoutes = require("./routes/monday");
+app.use("/api/account-boards", mondayApiRoutes);
 
 const PORT = 5000;
 

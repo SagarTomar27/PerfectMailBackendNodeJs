@@ -10,6 +10,13 @@ const EmailLogSchema = new mongoose.Schema(
     ccEmail: { type: String, default: "" },
     bccEmail: { type: String, default: "" },
     subject: { type: String, default: "" },
+    attachments: [
+      {
+        filename: { type: String, default: "" },
+        mimetype: { type: String, default: "" },
+        size: { type: Number, default: 0 }
+      }
+    ],
     status: { type: String, enum: ["sent", "failed"], default: "sent" },
     provider: { type: String, default: "sendgrid" },
     errorMessage: { type: String, default: "" },

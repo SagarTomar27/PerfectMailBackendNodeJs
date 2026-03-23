@@ -29,6 +29,12 @@ const requireTenant = (req, res) => {
   return tenant;
 };
 
+const parseBool = (value) => {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") return value.toLowerCase() === "true";
+  return Boolean(value);
+};
+
 const sanitizePayload = (body) => ({
   sender: body.sender || "",
   toEmail: body.toEmail || "",
@@ -36,8 +42,9 @@ const sanitizePayload = (body) => ({
   bccEmail: body.bccEmail || "",
   subject: body.subject || "",
   body: body.body || "",
-  createUpdate: Boolean(body.createUpdate),
-  tracking: Boolean(body.tracking)
+  isHtml: parseBool(body.isHtml),
+  createUpdate: parseBool(body.createUpdate),
+  tracking: parseBool(body.tracking)
 });
 
 const splitEmails = (value) =>
@@ -46,7 +53,22 @@ const splitEmails = (value) =>
     .map((v) => v.trim())
     .filter(Boolean);
 
-const sendWithSendGrid = async (payload) => {
+const normalizeAttachments = (files) =>
+  (files || []).map((file) => ({
+    filename: file.originalname || file.filename || "attachment",
+    mimetype: file.mimetype || "application/octet-stream",
+    size: file.size || 0,
+    buffer: file.buffer
+  }));
+
+const attachmentMeta = (attachments) =>
+  attachments.map((file) => ({
+    filename: file.filename,
+    mimetype: file.mimetype,
+    size: file.size
+  }));
+
+const sendWithSendGrid = async (payload, attachments) => {
   if (!process.env.SENDGRID_API_KEY || !process.env.SENDGRID_FROM) {
     throw new Error("SendGrid is not configured");
   }
@@ -57,7 +79,13 @@ const sendWithSendGrid = async (payload) => {
     bcc: payload.bccEmail || undefined,
     from: process.env.SENDGRID_FROM,
     subject: payload.subject || "No subject",
-    html: payload.body || ""
+    html: payload.body || "",
+    attachments: (attachments || []).map((file) => ({
+      content: file.buffer.toString("base64"),
+      filename: file.filename,
+      type: file.mimetype,
+      disposition: "attachment"
+    }))
   });
   const messageId = response && response.headers ? response.headers["x-message-id"] : "";
   return { provider: "sendgrid", messageId };
@@ -73,24 +101,69 @@ const refreshGoogleAccessToken = async (refreshToken) => {
   return res.data.access_token;
 };
 
-const sendWithGmail = async (account, payload) => {
+const buildGmailRaw = (payload, attachments) => {
   const toList = splitEmails(payload.toEmail);
   const ccList = splitEmails(payload.ccEmail);
   const bccList = splitEmails(payload.bccEmail);
+  const boundary = `mixed_${crypto.randomUUID()}`;
   const headers = [
     `To: ${toList.join(", ")}`,
     ccList.length ? `Cc: ${ccList.join(", ")}` : "",
     bccList.length ? `Bcc: ${bccList.join(", ")}` : "",
     `Subject: ${payload.subject || "No subject"}`,
     "MIME-Version: 1.0",
-    "Content-Type: text/html; charset=UTF-8"
+    `Content-Type: multipart/mixed; boundary="${boundary}"`
   ].filter(Boolean);
-  const raw = `${headers.join("\r\n")}\r\n\r\n${payload.body || ""}`;
-  const encoded = Buffer.from(raw)
+
+  const bodyParts = [];
+  bodyParts.push(`--${boundary}`);
+  bodyParts.push('Content-Type: text/html; charset="UTF-8"');
+  bodyParts.push("Content-Transfer-Encoding: 7bit");
+  bodyParts.push("");
+  bodyParts.push(payload.body || "");
+  bodyParts.push("");
+
+  (attachments || []).forEach((file) => {
+    bodyParts.push(`--${boundary}`);
+    bodyParts.push(`Content-Type: ${file.mimetype}; name="${file.filename}"`);
+    bodyParts.push("Content-Transfer-Encoding: base64");
+    bodyParts.push(`Content-Disposition: attachment; filename="${file.filename}"`);
+    bodyParts.push("");
+    bodyParts.push(file.buffer.toString("base64"));
+    bodyParts.push("");
+  });
+
+  bodyParts.push(`--${boundary}--`);
+  const raw = `${headers.join("\r\n")}\r\n\r\n${bodyParts.join("\r\n")}`;
+  return Buffer.from(raw)
     .toString("base64")
     .replace(/\+/g, "-")
     .replace(/\//g, "_")
     .replace(/=+$/, "");
+};
+
+const sendWithGmail = async (account, payload, attachments) => {
+  const toList = splitEmails(payload.toEmail);
+  const ccList = splitEmails(payload.ccEmail);
+  const bccList = splitEmails(payload.bccEmail);
+  const encoded = attachments && attachments.length
+    ? buildGmailRaw(payload, attachments)
+    : Buffer.from(
+        `${[
+          `To: ${toList.join(", ")}`,
+          ccList.length ? `Cc: ${ccList.join(", ")}` : "",
+          bccList.length ? `Bcc: ${bccList.join(", ")}` : "",
+          `Subject: ${payload.subject || "No subject"}`,
+          "MIME-Version: 1.0",
+          "Content-Type: text/html; charset=UTF-8"
+        ]
+          .filter(Boolean)
+          .join("\r\n")}\r\n\r\n${payload.body || ""}`
+      )
+        .toString("base64")
+        .replace(/\+/g, "-")
+        .replace(/\//g, "_")
+        .replace(/=+$/, "");
 
   const send = async (accessToken) => {
     const res = await axios.post(
@@ -130,7 +203,7 @@ const refreshMicrosoftAccessToken = async (refreshToken) => {
   return res.data.access_token;
 };
 
-const sendWithMicrosoft = async (account, payload) => {
+const sendWithMicrosoft = async (account, payload, attachments) => {
   const toRecipients = splitEmails(payload.toEmail).map((email) => ({
     emailAddress: { address: email }
   }));
@@ -153,7 +226,13 @@ const sendWithMicrosoft = async (account, payload) => {
           },
           toRecipients,
           ccRecipients,
-          bccRecipients
+          bccRecipients,
+          attachments: (attachments || []).map((file) => ({
+            "@odata.type": "#microsoft.graph.fileAttachment",
+            name: file.filename,
+            contentType: file.mimetype,
+            contentBytes: file.buffer.toString("base64")
+          }))
         },
         saveToSentItems: true
       },
@@ -228,7 +307,14 @@ exports.saveTemplate = async (req, res) => {
 
   try {
     const payload = sanitizePayload(req.body);
-    const template = await Template.create({ ...payload, ...tenant, status: "draft" });
+    const attachments = normalizeAttachments(req.files);
+    const attachmentsInfo = attachmentMeta(attachments);
+    const template = await Template.create({
+      ...payload,
+      ...tenant,
+      status: "draft",
+      attachments: attachmentsInfo
+    });
     res.status(201).json(template);
   } catch (error) {
     res.status(500).json({ error: "Failed to save template" });
@@ -240,8 +326,13 @@ exports.sendTemplate = async (req, res) => {
   const tenant = requireTenant(req, res);
   if (!tenant) return;
 
+  let payload = {};
+  let attachments = [];
+  let attachmentsInfo = [];
   try {
-    const payload = sanitizePayload(req.body);
+    payload = sanitizePayload(req.body);
+    attachments = normalizeAttachments(req.files);
+    attachmentsInfo = attachmentMeta(attachments);
     if (!payload.toEmail) {
       return res.status(400).json({ error: "Recipient email is required" });
     }
@@ -262,17 +353,22 @@ exports.sendTemplate = async (req, res) => {
         return res.status(400).json({ error: "Invalid sender account" });
       }
       if (account.provider === "google") {
-        sendResult = await sendWithGmail(account, trackedPayload);
+        sendResult = await sendWithGmail(account, trackedPayload, attachments);
       } else if (account.provider === "microsoft") {
-        sendResult = await sendWithMicrosoft(account, trackedPayload);
+        sendResult = await sendWithMicrosoft(account, trackedPayload, attachments);
       } else {
-        sendResult = await sendWithSendGrid(trackedPayload);
+        sendResult = await sendWithSendGrid(trackedPayload, attachments);
       }
     } else {
-      sendResult = await sendWithSendGrid(trackedPayload);
+      sendResult = await sendWithSendGrid(trackedPayload, attachments);
     }
 
-    const template = await Template.create({ ...payload, ...tenant, status: "sent" });
+    const template = await Template.create({
+      ...payload,
+      ...tenant,
+      status: "sent",
+      attachments: attachmentsInfo
+    });
     await EmailLog.create({
       accountId: tenant.accountId,
       userId: tenant.userId,
@@ -282,6 +378,7 @@ exports.sendTemplate = async (req, res) => {
       ccEmail: payload.ccEmail,
       bccEmail: payload.bccEmail,
       subject: payload.subject || "No subject",
+      attachments: attachmentsInfo,
       status: "sent",
       provider: sendResult.provider,
       sgMessageId: sendResult.messageId || "",
@@ -300,6 +397,7 @@ exports.sendTemplate = async (req, res) => {
         ccEmail: payload?.ccEmail || "",
         bccEmail: payload?.bccEmail || "",
         subject: payload?.subject || "No subject",
+        attachments: attachmentsInfo,
         status: "failed",
         provider: "unknown",
         errorMessage: error?.response?.data?.error || error?.message || "Send failed",
