@@ -35,6 +35,14 @@ const parseBool = (value) => {
   return Boolean(value);
 };
 
+const parseScheduleAt = (value) => {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date;
+};
+
+
 const sanitizePayload = (body) => ({
   sender: body.sender || "",
   toEmail: body.toEmail || "",
@@ -67,6 +75,15 @@ const attachmentMeta = (attachments) =>
     mimetype: file.mimetype,
     size: file.size
   }));
+
+const hydrateTemplateAttachments = (attachmentsData = []) =>
+  attachmentsData.map((file) => ({
+    filename: file.filename,
+    mimetype: file.mimetype,
+    size: file.size,
+    buffer: file.content || file.buffer
+  }));
+
 
 const sendWithSendGrid = async (payload, attachments) => {
   if (!process.env.SENDGRID_API_KEY || !process.env.SENDGRID_FROM) {
@@ -274,7 +291,7 @@ exports.listTemplates = async (req, res) => {
   if (!tenant) return;
 
   try {
-    const templates = await Template.find({ accountId: tenant.accountId }).sort({ createdAt: -1 });
+    const templates = await Template.find({ accountId: tenant.accountId }).select("-attachmentsData").sort({ createdAt: -1 });
     res.json(templates);
   } catch (error) {
     res.status(500).json({ error: "Failed to fetch templates" });
@@ -321,6 +338,65 @@ exports.saveTemplate = async (req, res) => {
   }
 };
 
+exports.scheduleTemplate = async (req, res) => {
+  if (!ensureDb(res)) return;
+  const tenant = requireTenant(req, res);
+  if (!tenant) return;
+
+  try {
+    const payload = sanitizePayload(req.body);
+    const scheduleAt = parseScheduleAt(req.body.scheduleAt);
+    if (!scheduleAt) {
+      return res.status(400).json({ error: "scheduleAt is required" });
+    }
+    if (scheduleAt.getTime() <= Date.now()) {
+      return res.status(400).json({ error: "scheduleAt must be in the future" });
+    }
+
+    const attachments = normalizeAttachments(req.files);
+    const attachmentsInfo = attachmentMeta(attachments);
+    const attachmentsData = attachments.map((file) => ({
+      filename: file.filename,
+      mimetype: file.mimetype,
+      size: file.size,
+      content: file.buffer
+    }));
+
+    if (!payload.toEmail) {
+      return res.status(400).json({ error: "Recipient email is required" });
+    }
+
+    const template = await Template.create({
+      ...payload,
+      ...tenant,
+      status: "scheduled",
+      scheduleAt,
+      attachments: attachmentsInfo,
+      attachmentsData
+    });
+
+    const trackingId = crypto.randomUUID();
+    await EmailLog.create({
+      accountId: tenant.accountId,
+      userId: tenant.userId,
+      accessToken: tenant.accessToken,
+      templateId: template._id,
+      toEmail: payload.toEmail,
+      ccEmail: payload.ccEmail,
+      bccEmail: payload.bccEmail,
+      subject: payload.subject || "No subject",
+      attachments: attachmentsInfo,
+      status: "scheduled",
+      scheduleAt,
+      trackingId
+    });
+
+    res.status(201).json(template);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to schedule template" });
+  }
+};
+
 exports.sendTemplate = async (req, res) => {
   if (!ensureDb(res)) return;
   const tenant = requireTenant(req, res);
@@ -340,7 +416,7 @@ exports.sendTemplate = async (req, res) => {
     const trackingId = crypto.randomUUID();
     const trackedPayload = {
       ...payload,
-      body: buildTrackedHtml(payload.body, trackingId)
+      body: payload.tracking ? buildTrackedHtml(payload.body, trackingId) : payload.body
     };
 
     let sendResult = { provider: "sendgrid", messageId: "" };
@@ -407,5 +483,138 @@ exports.sendTemplate = async (req, res) => {
       // ignore logging failure
     }
     res.status(500).json({ error: "Failed to send template" });
+  }
+};
+
+
+exports.processScheduledTemplates = async () => {
+  if (mongoose.connection.readyState !== 1) return;
+
+  const now = new Date();
+  const dueTemplates = await Template.find({
+    status: "scheduled",
+    scheduleAt: { $lte: now }
+  }).limit(25);
+
+  for (const template of dueTemplates) {
+    const locked = await Template.findOneAndUpdate(
+      { _id: template._id, status: "scheduled" },
+      { $set: { status: "sending" } }
+    );
+    if (!locked) continue;
+
+    const payload = {
+      sender: locked.sender || "",
+      toEmail: locked.toEmail || "",
+      ccEmail: locked.ccEmail || "",
+      bccEmail: locked.bccEmail || "",
+      subject: locked.subject || "",
+      body: locked.body || "",
+      isHtml: Boolean(locked.isHtml),
+      createUpdate: Boolean(locked.createUpdate),
+      tracking: Boolean(locked.tracking)
+    };
+
+    const attachments = hydrateTemplateAttachments(locked.attachmentsData);
+    const attachmentsInfo = locked.attachments || [];
+    const log = await EmailLog.findOne({ templateId: locked._id, status: "scheduled" }).sort({ createdAt: -1 });
+    const trackingId = log && log.trackingId ? log.trackingId : crypto.randomUUID();
+
+    const trackedPayload = {
+      ...payload,
+      body: payload.tracking ? buildTrackedHtml(payload.body, trackingId) : payload.body
+    };
+
+    try {
+      let sendResult = { provider: "sendgrid", messageId: "" };
+      if (payload.sender) {
+        const account = await EmailAccount.findOne({
+          _id: payload.sender,
+          accountId: locked.accountId
+        });
+        if (!account) {
+          throw new Error("Invalid sender account");
+        }
+        if (account.provider === "google") {
+          sendResult = await sendWithGmail(account, trackedPayload, attachments);
+        } else if (account.provider === "microsoft") {
+          sendResult = await sendWithMicrosoft(account, trackedPayload, attachments);
+        } else {
+          sendResult = await sendWithSendGrid(trackedPayload, attachments);
+        }
+      } else {
+        sendResult = await sendWithSendGrid(trackedPayload, attachments);
+      }
+
+      await Template.updateOne({ _id: locked._id }, { $set: { status: "sent" } });
+
+      if (log) {
+        await EmailLog.updateOne(
+          { _id: log._id },
+          {
+            $set: {
+              status: "sent",
+              provider: sendResult.provider,
+              sgMessageId: sendResult.messageId || "",
+              trackingId: trackingId,
+              sentAt: new Date(),
+              attachments: attachmentsInfo
+            }
+          }
+        );
+      } else {
+        await EmailLog.create({
+          accountId: locked.accountId,
+          userId: locked.userId,
+          accessToken: locked.accessToken,
+          templateId: locked._id,
+          toEmail: payload.toEmail,
+          ccEmail: payload.ccEmail,
+          bccEmail: payload.bccEmail,
+          subject: payload.subject || "No subject",
+          attachments: attachmentsInfo,
+          status: "sent",
+          provider: sendResult.provider,
+          sgMessageId: sendResult.messageId || "",
+          trackingId: trackingId,
+          sentAt: new Date()
+        });
+      }
+    } catch (error) {
+      const retryAt = new Date(Date.now() + 5 * 60 * 1000);
+      await Template.updateOne(
+        { _id: locked._id },
+        { $set: { status: "scheduled", scheduleAt: retryAt } }
+      );
+
+      const errorMessage = error?.response?.data?.error || error?.message || "Send failed";
+      if (log) {
+        await EmailLog.updateOne(
+          { _id: log._id },
+          {
+            $set: {
+              status: "failed",
+              errorMessage: errorMessage
+            }
+          }
+        );
+      } else {
+        await EmailLog.create({
+          accountId: locked.accountId,
+          userId: locked.userId,
+          accessToken: locked.accessToken,
+          templateId: locked._id,
+          toEmail: payload.toEmail,
+          ccEmail: payload.ccEmail,
+          bccEmail: payload.bccEmail,
+          subject: payload.subject || "No subject",
+          attachments: attachmentsInfo,
+          status: "failed",
+          provider: "unknown",
+          errorMessage: errorMessage,
+          trackingId: trackingId
+        });
+      }
+    }
   }
 };

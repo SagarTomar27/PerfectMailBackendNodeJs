@@ -17,7 +17,8 @@ const EmailLogSchema = new mongoose.Schema(
         size: { type: Number, default: 0 }
       }
     ],
-    status: { type: String, enum: ["sent", "failed"], default: "sent" },
+    status: { type: String, enum: ["scheduled", "sent", "failed"], default: "sent" },
+    scheduleAt: { type: Date },
     provider: { type: String, default: "sendgrid" },
     errorMessage: { type: String, default: "" },
     trackingId: { type: String, default: "" },

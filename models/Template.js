@@ -19,9 +19,18 @@ const TemplateSchema = new mongoose.Schema(
         size: { type: Number, default: 0 }
       }
     ],
+    attachmentsData: [
+      {
+        filename: { type: String, default: "" },
+        mimetype: { type: String, default: "" },
+        size: { type: Number, default: 0 },
+        content: { type: Buffer }
+      }
+    ],
     createUpdate: { type: Boolean, default: false },
     tracking: { type: Boolean, default: false },
-    status: { type: String, enum: ["draft", "sent"], default: "draft" }
+    scheduleAt: { type: Date },
+    status: { type: String, enum: ["draft", "scheduled", "sending", "sent"], default: "draft" }
   },
   { timestamps: true }
 );

@@ -53,6 +53,7 @@ app.use("/auth/monday", oauthRoutes);
 
 // Template routes
 const templateRoutes = require("./routes/templates");
+const { processScheduledTemplates } = require("./controllers/templateController");
 app.use("/api/templates", templateRoutes);
 
 // Tracking routes
@@ -77,6 +78,11 @@ app.use("/api/debug", debugRoutes);
 
 const mondayApiRoutes = require("./routes/monday");
 app.use("/api/account-boards", mondayApiRoutes);
+
+const SCHEDULE_INTERVAL_MS = Number(process.env.SCHEDULE_INTERVAL_MS || 60000);
+setInterval(() => {
+  processScheduledTemplates().catch((err) => console.log("Scheduled send error", err?.message || err));
+}, SCHEDULE_INTERVAL_MS);
 
 const PORT = 5000;
 
